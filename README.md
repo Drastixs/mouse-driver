@@ -1,77 +1,146 @@
-# TeckNet GM2793-1 on Linux
+# TeckNet GM2793-1 — native Linux application
 
-This project has a working Linux HID backend and a Wine compatibility frontend
-that uses the **exact original TeckNet UI**. It is not yet a fully native UI port.
-The Windows `Lowerdev.dll` is replaced with a rebuilt bridge; mouse configuration
-reports go through a local Python broker to Linux `hidraw`. Normal pointer input
-continues to use Linux's existing HID driver.
+A native PySide6/Qt desktop application and CLI that configure the mouse directly
+through Linux `hidraw`. No Wine, Windows executable, DLL, vendor backend, compiler,
+or vendor files are needed to build, install, or run the application. Normal
+pointer input uses Linux's existing HID driver.
 
-Target: GM2793-1, vendor configuration `258a:1007`, sensor `0x3104`.
-The USB ID and feature descriptors must match; the label alone is not sufficient.
+Target: USB `258a:1007`, sensor `0x3104`, firmware identity `32 37 36 34`.
+USB IDs and HID report sizes are checked during discovery; the controller checks
+firmware identity and sensor before configuration. The model label alone is not
+sufficient because other mice reuse the USB ID.
 
-## Run
+## Install and run
 
-Requirements: Python 3.10+, Wine with 32-bit application support, and
-`i686-w64-mingw32-gcc` to compile the replacement DLL. No Python dependencies.
-Place the original vendor application and assets in `vendor/original/`. Proprietary binaries and decompiled vendor sources are
-not included in this repository. The supplied files remain unmodified.
+Requires Linux and Python 3.10+. Install the application and its Qt dependency
+in a virtual environment:
 
 ```sh
-make bridge
-python3 -m tecknet --demo gui    # exact UI, simulated mouse
-# Optional: add --trace transfers.jsonl after gui to record feature transfers
-python3 -m tecknet list         # detect USB interfaces without opening them
-python3 -m tecknet info         # read firmware/profile from the connected mouse
-python3 -m tecknet dump 1 profile1.bin
-python3 -m tecknet gui          # original UI backed by Linux HID
+python3 -m venv .venv
+.venv/bin/python -m pip install .
+.venv/bin/tecknet-mouse --demo gui
+.venv/bin/tecknet-mouse gui
 ```
 
-`--demo` never opens a physical mouse. The real mode fails if the mouse is absent;
-it never silently falls back to demo. If multiple matching mice are attached,
-select one with `--device-index N` before the subcommand.
+For development use `pip install -e .` instead. With the environment activated,
+`python -m tecknet` and `tecknet-mouse` also open the GUI. CLI commands can run
+from this source checkout with Python's standard library, without importing Qt.
 
-For access without running the UI as root:
+`--demo` never opens hardware; its state is in memory and its window is labeled
+Demo. Real mode fails if no matching device is present. With several matching
+mice attached, put `--device-index N` before the subcommand.
+
+To grant access to your desktop user:
 
 ```sh
 sudo install -m 0644 packaging/70-tecknet-gm2793.rules /etc/udev/rules.d/
 sudo udevadm control --reload-rules
 ```
 
-Reconnect the mouse after installing the rule. It grants access to the active
-local desktop user through `uaccess`. Run the application as that user.
+Reconnect the mouse after installing the rule. Run the app as your desktop user.
+A hidraw lock prevents competing instances of this application from configuring
+the same mouse. No kernel driver replacement is required.
 
-The Wine app and prefix live in `$XDG_CACHE_HOME/tecknet-gm2793/` (default:
-`~/.cache/tecknet-gm2793/`), with separate `demo` and `device` directories.
-The launcher loads the replacement DLL explicitly and starts an authenticated
-broker on a randomly allocated localhost port. Exiting the vendor application stops the broker. Its window close button
-minimizes to the tray; use the tray Exit action or Ctrl+C in the launching terminal.
-Do not launch multiple copies against the same physical mouse.
+## Desktop application
 
-## Current validation and limits
-
-The DLL compiles with warnings treated as errors. Unit tests exercise the HID
-report descriptor parser, Linux ioctl numbers, short-read detection, bridge
-authentication and profile exchanges. The original UI was exercised against
-the simulated device through the rebuilt bridge: startup, Apply, and changing
-polling from 500 to 1000 Hz. The resulting profile writes differed only in
-report byte 10 (3 to 4). A captured vendor exchange is replayed by the tests;
-see [validation evidence](docs/validation/README.md).
-
-No physical GM2793-1 is available in this environment. Real configuration writes,
-firmware persistence and unplug/reconnect behavior remain unverified. The broker
-forwards the original UI's feature reports, including button/macro reports;
-it does not independently reimplement those encoders. Notification input reports
-are not implemented, so physical DPI changes do not update the UI live.
-The simulator preserves general profile writes but does not emulate macro
-playback or the complete firmware behavior. Export important profiles before
-using Apply on hardware.
-
-A fully native Linux UI and independently implemented macro/button encoders
-remain future work. The compatibility frontend preserves every vendor screen
-while providing a usable path to test the Linux transport now.
+The window follows the original application's arrangement: button assignments on
+the left, a numbered mouse diagram in the middle, collapsible settings on the
+right, and profiles plus Restore/Apply along the bottom. Its graphics are drawn
+natively. You can optionally use skin images from your own vendor installation:
 
 ```sh
-make test
+tecknet-mouse --demo gui --skin-dir /path/to/original/skins
 ```
 
-See [protocol notes](docs/protocol.md) for evidence and report layouts.
+Only `main_nr.png` and `mouse/mouse_nr.png` are read. Original executables,
+libraries, and settings encoders are never loaded. Qt controls remain native;
+the original MFC rendering is not used.
+
+Features:
+
+- Three hardware modes with independent staged settings; Apply saves and
+  activates the selected mode. Reload reads hardware settings again.
+- 125/250/500/1000 Hz polling, eight DPI stages, enabled stages, active stage,
+  separate X/Y values, and per-stage RGB colors. The DPI choices use the vendor
+  INI's sensor mapping, including 1200 and 2400 DPI.
+- Lighting effects, speed, brightness, streaming direction, and multi-color
+  palettes for breathing, reaction/steady, and flicker effects.
+- Button assignments for mouse clicks, scrolling, DPI lock/cycling, polling,
+  profile and lighting controls, media keys, and keyboard shortcuts. Clicking a
+  numbered diagram button edits it; an additional dialog exposes all 20 matrix
+  entries. At least one left-click assignment must remain.
+- A named macro library, text import/export, focused keyboard recording,
+  keyboard/modifier and mouse down/up, movement, wheel events, and event delays.
+  Playback supports repeat count, until released, and until pressed again.
+- Named local profiles, import/export, raw general-profile backup import, and
+  Restore defaults staged for review before Apply.
+- GNOME desktop pointer speed, acceleration, handedness, double-click interval,
+  and natural scrolling. On other desktops, use their Mouse settings. This panel
+  is optional and does not affect the firmware features. Demo changes stay local.
+
+Apply merges changes into a fresh general-profile read and verifies readback.
+Unknown general payload bytes survive edits; button matrices are only written
+when changed. Button readback prevents silently resetting existing assignments.
+Macros are assigned to buffers unused by other hardware modes. Existing opaque
+macro assignments are preserved. Firmware macro contents cannot be read back;
+exported native profiles contain macro source created in this app, not macros
+previously programmed by other software.
+
+The macro library, local presets, and known native macro associations are saved
+atomically in `$XDG_CONFIG_HOME/tecknet-gm2793/library.json` (default
+`~/.config/tecknet-gm2793/library.json`). Demo uses `demo-library.json` separately.
+Closing the window exits the app. Unsaved staged firmware edits are discarded.
+
+## CLI
+
+```sh
+python3 -m tecknet list
+python3 -m tecknet info
+python3 -m tecknet show 1
+python3 -m tecknet select 2
+python3 -m tecknet set 1 --polling 1000
+python3 -m tecknet set 1 --dpi 500 1200 2400 4000 8000 --active-slot 2
+python3 -m tecknet set 1 --effect 2 --brightness 4 --color '#00aaff'
+python3 -m tecknet bind 1 6 'key:CTRL+C'
+python3 -m tecknet dump 1 profile1.bin
+python3 -m tecknet export 1 profile1.json
+python3 -m tecknet import 2 profile1.json
+python3 -m tecknet import 1 profile1.bin
+python3 -m tecknet buttons 1 examples/buttons.json
+python3 -m tecknet macro 1 1 examples/macro.txt --button 6 --matrix examples/buttons.json
+```
+
+`bind` changes one matrix entry and preserves the others. `buttons` takes twenty
+complete action names or integer codes. `macro` takes an explicit matrix and
+buffer ID; the controller rejects a buffer used by another mode. GUI native
+profiles include named macros and allocate buffers on import. CLI general-profile
+exports are also accepted by the GUI. A raw general backup excludes buttons and
+macros. See [examples](examples/) and `python3 -m tecknet --help`.
+
+`make install` additionally installs a source launcher and desktop entry under
+`~/.local` (`PREFIX`/`DESTDIR` are supported). That source launcher uses system
+Python, so PySide6 must be available there. For virtual-environment installations,
+use the installed `tecknet-mouse` entry point instead. The udev rule is installed
+separately.
+
+## Validation
+
+```sh
+make test PYTHON=.venv/bin/python
+make test-gui PYTHON=.venv/bin/python
+```
+
+Qt tests run headlessly using its offscreen platform. Native encoders reproduce
+the captured vendor polling and default button reports byte for byte. Tests also
+exercise real Qt widgets, macro recording/allocation, multi-color lighting,
+DPI encodings, hidraw ioctls and locking, import/export, conflict detection,
+report ordering, and readback failures. See [validation evidence](docs/validation/README.md)
+and [protocol notes](docs/protocol.md).
+
+No physical GM2793-1 is available in this environment. Hardware writes, persistent
+storage, unplug/reconnect behavior, and macro playback still need device testing.
+The simulator stores reports but does not play macros or emulate all firmware
+behavior. Physical DPI changes require Reload; live notification reports are not
+implemented. Vendor encrypted macro files and bullet/recoil macro formats are
+not implemented. Research tools under `re/` are historical and are excluded from
+the installed application.

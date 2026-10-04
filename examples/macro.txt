@@ -1,0 +1,5 @@
+# Press Ctrl+C. Delay is measured after each event, in milliseconds.
+down CTRL 10
+down C 20
+up C 10
+up CTRL 20

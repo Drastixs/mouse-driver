@@ -1,11 +1,21 @@
-.PHONY: bridge test demo
-bridge: build/Lowerdev.dll
-build/Lowerdev.dll: re/emulator/lowerdev_linux.c re/emulator/lowerdev_emu.def
-	mkdir -p build
-	i686-w64-mingw32-gcc -shared -O2 -Wall -Wextra -Werror -o $@ $^ -lws2_32
+.PHONY: test test-gui demo install install-udev
+PREFIX ?= $(HOME)/.local
+PYTHON ?= python3
 
 test:
-	python3 -m unittest discover -s tests -v
+	QT_QPA_PLATFORM=offscreen $(PYTHON) -m unittest discover -s tests -v
 
-demo: bridge
-	python3 -m tecknet --demo gui
+test-gui:
+	QT_QPA_PLATFORM=offscreen $(PYTHON) -m unittest discover -s tests -p 'test_gui.py' -v
+
+demo:
+	$(PYTHON) -m tecknet --demo gui
+
+install:
+	install -d $(DESTDIR)$(PREFIX)/share/tecknet-gm2793/tecknet $(DESTDIR)$(PREFIX)/bin $(DESTDIR)$(PREFIX)/share/applications
+	install -m 0644 tecknet/*.py $(DESTDIR)$(PREFIX)/share/tecknet-gm2793/tecknet/
+	install -m 0755 packaging/tecknet-mouse $(DESTDIR)$(PREFIX)/bin/tecknet-mouse
+	install -m 0644 packaging/tecknet-mouse.desktop $(DESTDIR)$(PREFIX)/share/applications/
+
+install-udev:
+	install -m 0644 packaging/70-tecknet-gm2793.rules $(DESTDIR)/etc/udev/rules.d/

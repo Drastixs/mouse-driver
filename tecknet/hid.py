@@ -20,6 +20,8 @@ def feature_sizes(descriptor):
             if pos + 2 > len(descriptor):
                 raise ValueError("Truncated HID long item")
             length = descriptor[pos]
+            if pos + 2 + length > len(descriptor):
+                raise ValueError("Truncated HID long item data")
             pos += 2 + length
             continue
         length = (0, 1, 2, 4)[prefix & 3]
@@ -66,6 +68,7 @@ def discover(sysroot=Path('/sys/class/hidraw')):
 
 class HidDevice:
     def __init__(self, index=0):
+        self.index = index
         groups = discover()
         if not groups:
             raise RuntimeError('No GM2793-1 (258a:1007) with the expected HID reports found')
@@ -73,14 +76,23 @@ class HidDevice:
             raise ValueError('Device index out of range')
         self.fds = {}
         try:
+            opened = {}
             for report, path in groups[index].items():
-                self.fds[report] = os.open(path, os.O_RDWR | os.O_CLOEXEC)
-        except OSError:
+                if path not in opened:
+                    fd = os.open(path, os.O_RDWR | os.O_CLOEXEC)
+                    self.fds[report] = fd
+                    try:
+                        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    except BlockingIOError:
+                        raise RuntimeError('This mouse is already open in another configuration process') from None
+                    opened[path] = fd
+                self.fds[report] = opened[path]
+        except (OSError, RuntimeError):
             self.close()
             raise
 
     def close(self):
-        for fd in self.fds.values():
+        for fd in set(self.fds.values()):
             os.close(fd)
         self.fds.clear()
 
@@ -90,8 +102,8 @@ class HidDevice:
         # _IOC(_IOC_READ | _IOC_WRITE, 'H', GET=7 / SET=6, length)
         request = (3 << 30) | (len(buf) << 16) | (ord('H') << 8) | (7 if get else 6)
         size = fcntl.ioctl(self.fds[buf[0]], request, buf, True)
-        if get and size != len(buf):
-            raise OSError(f'Short HID feature read: {size}/{len(buf)}')
+        if size != len(buf):
+            raise OSError(f'Short HID feature {"read" if get else "write"}: {size}/{len(buf)}')
         return bytes(buf) if get else b''
 
     def command(self, opcode, value=0):
@@ -100,9 +112,15 @@ class HidDevice:
         return self.transfer(True, bytes((5, 0, 0, 0, 0, 0)))
 
     def read_profile(self, number):
+        return self.read_data(number, 1)
+
+    def read_matrix(self, number):
+        return self.read_data(number, 2)
+
+    def read_data(self, number, kind):
         if number not in (1, 2, 3):
             raise ValueError('Profile must be 1, 2 or 3')
-        self.transfer(False, bytes((5, number * 16 + 1, 0, 0, 0, 0)))
+        self.transfer(False, bytes((5, number * 16 + kind, 0, 0, 0, 0)))
         time.sleep(.025)
         return self.transfer(True, bytes((4,)) + bytes(519))
 
@@ -118,6 +136,8 @@ class SimulatedDevice(HidDevice):
         self.last = bytes(6)
         self.active = 1
         self.profiles = {}
+        self.matrices = {}
+        self.macros = {}
         self.transfers = []
         for n in (1, 2, 3):
             buf = bytearray(520)
@@ -142,9 +162,17 @@ class SimulatedDevice(HidDevice):
                     self.active = data[2]
             elif data[1] in (0x11, 0x21, 0x31):
                 self.profiles[data[1] >> 4] = bytes(data)
+            elif data[1] in (0x12, 0x22, 0x32) and data[2] == 0:
+                self.matrices[data[1] >> 4] = bytes(data)
+            elif data[1:3] == bytes((0x30, 2)):
+                self.macros[data[8]] = bytes(data)
             return b''
         if data[0] == 5:
             return bytes((5, 1, 0x32, 0x37, 0x36, 0x34)) if self.last[1] == 1 else bytes((5, self.last[1], self.active, 0, 0, 0))
         if self.last[1] in (0x11, 0x21, 0x31):
             return self.profiles[self.last[1] >> 4]
+        if self.last[1] in (0x12, 0x22, 0x32):
+            from .protocol import DEFAULT_BUTTONS, matrix_report
+            n = self.last[1] >> 4
+            return self.matrices.get(n, matrix_report(n, DEFAULT_BUTTONS))
         return bytes((4,)) + bytes(519)

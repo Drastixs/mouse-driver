@@ -1,24 +1,31 @@
-# Sandbox validation, 2026-10-04
+# Native Linux validation, 2026-10-04
 
-Built `re/emulator/lowerdev_linux.c` as a 32-bit DLL with
-`i686-w64-mingw32-gcc -shared -O2 -Wall -Wextra -Werror ... -lws2_32`.
-Ran the original application under Wine on an Xvfb display, using that DLL,
-the Python broker, and `SimulatedDevice`. No physical USB device was involved.
+The installed application is Python/PySide6 and Linux hidraw. No Wine, vendor
+executable, Windows DLL, or vendor backend is used for these checks.
 
-Verified:
+The automated suite exercises:
 
-- Original English UI opens, loads its skin assets, and retrieves firmware ID,
-  current profile, and both visible hardware modes through the bridge.
-- Clicking Apply completes button-matrix and general-profile feature writes.
-- Selecting 1000 Hz changes general-report byte 10 from 3 to 4; all other
-  519 report bytes are identical to the preceding 500 Hz write.
-- The vendor applies the polling selection immediately (`ApplyNow=1`), so the
-  fixture contains both the automatic write and a subsequent explicit Apply.
+- Native polling and default button reports against the historical vendor
+  fixture, byte for byte.
+- DPI wire codes, including the INI overrides for 1200/2400 DPI, X/Y stages,
+  active-stage ordinals and disabled-stage masks.
+- HID feature ioctl numbers, short transfers, descriptor parsing and device locks.
+- Native keyboard/media/button and ordinary macro encoders, playback flags,
+  movement/delays and buffer allocation around other hardware modes.
+- Real Qt widgets loading three modes, changing polling, applying X/Y DPI and
+  multi-color lighting, activating a mode, validating edits, recording focused
+  keyboard input, preserving existing mappings, and restoring exported state.
+- Readback failures, conflicting external edits and atomic JSON import/export.
 
-`vendor-demo-transfers.json` contains the captured report requests and replies,
-with timestamps removed. Unit tests replay the exchange through the broker.
-`polling-1000.png` shows the original UI after the change.
+Run `make test PYTHON=.venv/bin/python` to include the offscreen Qt tests. The
+screenshots `native-linux.png`, `native-buttons.png` and `native-macros.png` show
+the native Qt application with its own graphics and a simulated device.
 
-This establishes compatibility of the Windows frontend, rebuilt DLL, and
-Linux broker in simulation. It does not establish compatibility with physical
-firmware, macro playback, or persistent storage.
+`vendor-demo-transfers.json` and `polling-1000.png` are historical evidence from
+running the original vendor app through a Wine/DLL bridge against a simulated
+mouse. The current native encoder tests consume the captured report bytes; they
+do not launch that application or use its encoders. The old bridge was removed.
+
+No physical GM2793-1 is attached. These checks establish native execution and
+report construction in simulation. Physical configuration, persistence after
+power cycling, matrix readback, macro playback and reconnects remain unverified.

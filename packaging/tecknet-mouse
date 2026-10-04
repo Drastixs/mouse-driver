@@ -1,0 +1,4 @@
+#!/bin/sh
+# Resolve the installation relative to this launcher; support custom prefixes.
+TECKNET_PREFIX=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+PYTHONPATH="$TECKNET_PREFIX/share/tecknet-gm2793${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m tecknet "$@"
