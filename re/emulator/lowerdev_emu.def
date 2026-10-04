@@ -1,0 +1,10 @@
+LIBRARY Lowerdev.dll
+EXPORTS
+ FindHidDevice @1
+ GetFeature @2
+ GetInputReport @3
+ GetProductID @4
+ GetProductString @5
+ OpenHidDevice @6
+ SetFeature @7
+ SetOutputReport @8

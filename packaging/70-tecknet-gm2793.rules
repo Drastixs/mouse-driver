@@ -1,0 +1,3 @@
+# Install into /etc/udev/rules.d/ and reconnect the mouse.
+# Grants the active local desktop user access, rather than every system user.
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="258a", ATTRS{idProduct}=="1007", TAG+="uaccess"

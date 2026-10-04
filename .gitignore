@@ -1,0 +1,12 @@
+vendor/
+tools/
+__pycache__/
+*.pyc
+.venv/
+build/
+dist/
+*.egg-info/
+re/ghidra_proj/
+re/decomp/
+re/ghidra.log
+re/emulator/*.dll
